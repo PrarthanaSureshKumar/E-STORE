@@ -1,0 +1,17 @@
+# Go
+/backend/bin/
+*.exe
+*.out
+
+# Environment variables (NEVER commit passwords or secrets)
+.env
+.env.local
+
+# React / Node
+frontend/node_modules/
+frontend/build/
+frontend/.env
+
+# OS files
+.DS_Store
+Thumbs.db
