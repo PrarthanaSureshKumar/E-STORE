@@ -26,21 +26,32 @@ type Product struct {
 }
 
 func getProducts(w http.ResponseWriter, r *http.Request) {
-	// Query the database — this is SQL inside Go
-	rows, err := db.Query("SELECT id, name, description, category, price, stock, image_url FROM products ORDER BY category, name")
+	// Read the ?category= query parameter from the URL
+	// e.g. /products?category=Clothing → category = "Clothing"
+	// e.g. /products               → category = "" (empty, return all)
+	category := r.URL.Query().Get("category")
+
+	var rows *sql.Rows
+	var err error
+
+	if category == "" {
+		// No filter — return all products
+		rows, err = db.Query("SELECT id, name, description, category, price, stock, image_url FROM products ORDER BY category, name")
+	} else {
+		// Filter by category — $1 is a placeholder, Go fills it in safely (prevents SQL injection)
+		rows, err = db.Query("SELECT id, name, description, category, price, stock, image_url FROM products WHERE category = $1 ORDER BY name", category)
+	}
+
 	if err != nil {
-		// Something went wrong — tell the caller with a 500 status
 		http.Error(w, "Failed to fetch products", http.StatusInternalServerError)
 		log.Println("DB error:", err)
 		return
 	}
-	defer rows.Close() // always close rows when done to free up memory
+	defer rows.Close()
 
-	// Build a list of products from the database rows
 	var products []Product
 	for rows.Next() {
 		var p Product
-		// Scan reads one row and maps each column into the struct fields
 		err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Category, &p.Price, &p.Stock, &p.ImageURL)
 		if err != nil {
 			http.Error(w, "Failed to read product", http.StatusInternalServerError)
