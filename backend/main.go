@@ -1,48 +1,80 @@
 package main
 
-// "package main" tells Go: this is the starting point of the program
-
 import (
-	"encoding/json" // lets us convert Go data into JSON format
-	"fmt"           // lets us print things
-	"net/http"      // gives us the web server tools
+	"database/sql" // Go's built-in tool for talking to any database
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+
+	_ "github.com/lib/pq" // the PostgreSQL driver (the _ means "import for side effects" — it registers itself with database/sql)
 )
 
-// This is a "struct" — it's how Go describes what a Product looks like.
-// Think of it as a blueprint. Every product has these 3 fields.
+// db is a global variable that holds our database connection
+// the whole app shares one connection pool
+var db *sql.DB
+
+// Product now matches our real database columns
 type Product struct {
-	ID    int     `json:"id"`
-	Name  string  `json:"name"`
-	Price float64 `json:"price"`
+	ID          int     `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Category    string  `json:"category"`
+	Price       float64 `json:"price"`
+	Stock       int     `json:"stock"`
+	ImageURL    string  `json:"image_url"`
 }
 
-// This function runs when someone hits GET /products
-// w = where you write your response back to the caller
-// r = the incoming request (has info like the URL, method, etc.)
 func getProducts(w http.ResponseWriter, r *http.Request) {
-	// Fake data for now — later this will come from PostgreSQL
-	products := []Product{
-		{ID: 1, Name: "T-Shirt", Price: 19.99},
-		{ID: 2, Name: "Hoodie", Price: 49.99},
-		{ID: 3, Name: "Cap", Price: 14.99},
+	// Query the database — this is SQL inside Go
+	rows, err := db.Query("SELECT id, name, description, category, price, stock, image_url FROM products ORDER BY category, name")
+	if err != nil {
+		// Something went wrong — tell the caller with a 500 status
+		http.Error(w, "Failed to fetch products", http.StatusInternalServerError)
+		log.Println("DB error:", err)
+		return
+	}
+	defer rows.Close() // always close rows when done to free up memory
+
+	// Build a list of products from the database rows
+	var products []Product
+	for rows.Next() {
+		var p Product
+		// Scan reads one row and maps each column into the struct fields
+		err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Category, &p.Price, &p.Stock, &p.ImageURL)
+		if err != nil {
+			http.Error(w, "Failed to read product", http.StatusInternalServerError)
+			return
+		}
+		products = append(products, p)
 	}
 
-	// Tell the caller "the response will be JSON"
 	w.Header().Set("Content-Type", "application/json")
-
-	// Send back 200 OK status code
 	w.WriteHeader(http.StatusOK)
-
-	// Convert the products list to JSON and write it to the response
 	json.NewEncoder(w).Encode(products)
 }
 
-// main() is where the program starts — Go always runs this first
 func main() {
-	// "when someone hits /products, run the getProducts function"
+	// Connection string — tells Go where the database is and how to connect
+	// format: "host=... port=... dbname=... sslmode=disable"
+	connStr := "host=localhost port=5432 dbname=estore sslmode=disable"
+
+	var err error
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatal("Failed to open DB connection:", err)
+	}
+
+	// Ping checks the connection is actually working
+	err = db.Ping()
+	if err != nil {
+		log.Fatal("Cannot reach database:", err)
+	}
+
+	fmt.Println("Connected to database successfully!")
+
 	http.HandleFunc("/products", getProducts)
 
-	// Start the server on port 8080 and print a message so we know it's running
 	fmt.Println("Server started on http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
 }
